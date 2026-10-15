@@ -34,7 +34,10 @@ data class StandbySettings(
     val colorHex: Long = 0xFFFFFFFF,
     val is24Hour: Boolean = true,
     val showDate: Boolean = true,
-    val showSwipeHint: Boolean = true
+    val showSwipeHint: Boolean = true,
+    val textAlignment: String = "AUTO",
+    val backgroundOpacity: Float = 1.0f,
+    val backgroundBlurDp: Int = 0
 )
 
 data class WallpaperSettings(
@@ -80,6 +83,7 @@ class SettingsRepository(private val context: Context) {
     private val KEY_STANDBY_24H = booleanPreferencesKey("standby_24h")
     private val KEY_STANDBY_SHOW_DATE = booleanPreferencesKey("standby_show_date")
     private val KEY_STANDBY_SHOW_HINT = booleanPreferencesKey("standby_show_hint")
+    private val KEY_STANDBY_ALIGNMENT = stringPreferencesKey("standby_alignment")
 
     // Wallpaper Keys
     private val KEY_STANDBY_WP_TYPE = stringPreferencesKey("standby_wp_type")
@@ -182,7 +186,8 @@ class SettingsRepository(private val context: Context) {
             colorHex = prefs[KEY_STANDBY_COLOR] ?: 0xFFFFFFFF,
             is24Hour = prefs[KEY_STANDBY_24H] ?: true,
             showDate = prefs[KEY_STANDBY_SHOW_DATE] ?: true,
-            showSwipeHint = prefs[KEY_STANDBY_SHOW_HINT] ?: true
+            showSwipeHint = prefs[KEY_STANDBY_SHOW_HINT] ?: true,
+            textAlignment = prefs[KEY_STANDBY_ALIGNMENT] ?: "AUTO"
         )
 
         _standbyWallpaper.value = WallpaperSettings(
@@ -252,6 +257,7 @@ class SettingsRepository(private val context: Context) {
                 it[KEY_STANDBY_24H] = newSettings.is24Hour
                 it[KEY_STANDBY_SHOW_DATE] = newSettings.showDate
                 it[KEY_STANDBY_SHOW_HINT] = newSettings.showSwipeHint
+                it[KEY_STANDBY_ALIGNMENT] = newSettings.textAlignment
             }
         }
     }

@@ -62,6 +62,11 @@ fun StandbyClockView(
             "Serif" -> FontFamily.Serif
             "Monospace" -> FontFamily.Monospace
             "Cursive" -> FontFamily.Cursive
+            "Condensed" -> try {
+                FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
+            } catch (e: Exception) {
+                FontFamily.SansSerif
+            }
             else -> FontFamily.Default
         }
     }
@@ -74,19 +79,29 @@ fun StandbyClockView(
         Color(settings.colorHex)
     }
 
-    val alignment = remember(settings.gridPosition) {
-        when (settings.gridPosition % 3) {
-            0 -> Alignment.Start
-            2 -> Alignment.End
-            else -> Alignment.CenterHorizontally
+    val alignment = remember(settings.textAlignment, settings.gridPosition) {
+        when (settings.textAlignment) {
+            "LEFT" -> Alignment.Start
+            "RIGHT" -> Alignment.End
+            "CENTER" -> Alignment.CenterHorizontally
+            else -> when (settings.gridPosition % 3) {
+                0 -> Alignment.Start
+                2 -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            }
         }
     }
 
-    val textAlign = remember(settings.gridPosition) {
-        when (settings.gridPosition % 3) {
-            0 -> TextAlign.Start
-            2 -> TextAlign.End
-            else -> TextAlign.Center
+    val textAlign = remember(settings.textAlignment, settings.gridPosition) {
+        when (settings.textAlignment) {
+            "LEFT" -> TextAlign.Start
+            "RIGHT" -> TextAlign.End
+            "CENTER" -> TextAlign.Center
+            else -> when (settings.gridPosition % 3) {
+                0 -> TextAlign.Start
+                2 -> TextAlign.End
+                else -> TextAlign.Center
+            }
         }
     }
 

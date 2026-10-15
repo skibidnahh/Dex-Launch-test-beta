@@ -76,6 +76,7 @@ import com.example.dexlauncher.data.repository.SettingsRepository
 import com.example.dexlauncher.shizuku.ShizukuManager
 import com.example.dexlauncher.shizuku.ShizukuStatus
 import com.example.dexlauncher.ui.standby.StandbyPreviewView
+import com.example.dexlauncher.ui.standby.StandbyCustomizeSimulatorDialog
 import com.example.dexlauncher.ui.theme.DeXDarkPalette
 import kotlin.math.roundToInt
 
@@ -103,6 +104,7 @@ fun SettingsDialog(
     var hasOverlayPermission by remember { mutableStateOf(settingsRepository.hasOverlayPermission()) }
     var hasSecureSettings by remember { mutableStateOf(settingsRepository.hasWriteSecureSettings()) }
     var isFreeformActive by remember { mutableStateOf(settingsRepository.isFreeformGlobalEnabled()) }
+    var showStandbySimulator by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -239,10 +241,25 @@ fun SettingsDialog(
                         StandbyPreviewView(
                             standbySettings = standbySettings,
                             wallpaperSettings = standbyWallpaper,
-                            onGridPositionSelected = { newPos ->
-                                settingsRepository.updateStandbySettings(standbySettings.copy(gridPosition = newPos))
+                            onPositionChanged = { newPos, offsetX, offsetY ->
+                                settingsRepository.updateStandbySettings(
+                                    standbySettings.copy(
+                                        gridPosition = newPos,
+                                        customOffsetX = offsetX,
+                                        customOffsetY = offsetY
+                                    )
+                                )
                             }
                         )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { showStandbySimulator = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = DeXDarkPalette.PrimaryBlue)
+                        ) {
+                            Text("Mở Giả lập Màn hình chờ (Interactive Simulator)", color = Color.White)
+                        }
 
                         Spacer(modifier = Modifier.height(14.dp))
 
@@ -808,6 +825,14 @@ fun SettingsDialog(
             }
         }
     }
+
+    StandbyCustomizeSimulatorDialog(
+        isOpen = showStandbySimulator,
+        standbySettings = standbySettings,
+        wallpaperSettings = standbyWallpaper,
+        onSettingsChanged = { settingsRepository.updateStandbySettings(it) },
+        onDismiss = { showStandbySimulator = false }
+    )
 }
 
 @Composable

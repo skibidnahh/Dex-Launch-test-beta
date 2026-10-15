@@ -3,8 +3,10 @@ package com.example.dexlauncher.ui.standby
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,10 +18,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dexlauncher.data.repository.StandbySettings
@@ -31,16 +39,19 @@ import com.example.dexlauncher.ui.wallpaper.WallpaperBackground
 fun StandbyPreviewView(
     standbySettings: StandbySettings,
     wallpaperSettings: WallpaperSettings,
-    onGridPositionSelected: (Int) -> Unit,
+    onPositionChanged: (gridPos: Int, offsetX: Float, offsetY: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(210.dp)
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, DeXDarkPalette.Border, RoundedCornerShape(16.dp))
     ) {
+        val boxWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val boxHeightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+
         // Wallpaper in preview
         WallpaperBackground(
             wallpaperSettings = wallpaperSettings,
@@ -62,6 +73,9 @@ fun StandbyPreviewView(
                     for (col in 0..2) {
                         val pos = row * 3 + col
                         val isSelected = standbySettings.gridPosition == pos
+                        val targetX = when (col) { 0 -> 0.18f; 1 -> 0.5f; else -> 0.82f }
+                        val targetY = when (row) { 0 -> 0.22f; 1 -> 0.5f; else -> 0.78f }
+
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
@@ -72,7 +86,7 @@ fun StandbyPreviewView(
                                     color = if (isSelected) DeXDarkPalette.ActiveCyan else Color.White.copy(alpha = 0.4f),
                                     shape = CircleShape
                                 )
-                                .clickable { onGridPositionSelected(pos) },
+                                .clickable { onPositionChanged(pos, targetX, targetY) },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
@@ -89,29 +103,49 @@ fun StandbyPreviewView(
             }
         }
 
-        // Clock rendered at selected position
-        val clockAlignment = when (standbySettings.gridPosition) {
-            0 -> Alignment.TopStart
-            1 -> Alignment.TopCenter
-            2 -> Alignment.TopEnd
-            3 -> Alignment.CenterStart
-            4 -> Alignment.Center
-            5 -> Alignment.CenterEnd
-            6 -> Alignment.BottomStart
-            7 -> Alignment.BottomCenter
-            8 -> Alignment.BottomEnd
-            else -> Alignment.Center
-        }
+        // Clock rendered at custom offset / grid position with drag capability
+        val biasX = (standbySettings.customOffsetX * 2f - 1f).coerceIn(-0.95f, 0.95f)
+        val biasY = (standbySettings.customOffsetY * 2f - 1f).coerceIn(-0.95f, 0.95f)
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
-            contentAlignment = clockAlignment
+                .padding(16.dp)
+                .pointerInput(boxWidthPx, boxHeightPx) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val newX = (standbySettings.customOffsetX + dragAmount.x / boxWidthPx).coerceIn(0.1f, 0.9f)
+                        val newY = (standbySettings.customOffsetY + dragAmount.y / boxHeightPx).coerceIn(0.15f, 0.85f)
+                        // Determine nearest grid position if close
+                        val col = if (newX < 0.35f) 0 else if (newX > 0.65f) 2 else 1
+                        val row = if (newY < 0.35f) 0 else if (newY > 0.65f) 2 else 1
+                        val nearestPos = row * 3 + col
+                        onPositionChanged(nearestPos, newX, newY)
+                    }
+                },
+            contentAlignment = BiasAlignment(biasX, biasY)
         ) {
             // Scaled down preview clock
             StandbyClockView(
-                settings = standbySettings.copy(clockSizeSp = (standbySettings.clockSizeSp * 0.45f).toInt().coerceAtLeast(24))
+                settings = standbySettings.copy(
+                    clockSizeSp = (standbySettings.clockSizeSp * 0.42f).toInt().coerceAtLeast(22)
+                )
+            )
+        }
+
+        // Hint label at bottom center
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 6.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color.Black.copy(alpha = 0.45f))
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "Kéo thả tự do hoặc chạm 1 trong 9 nút vị trí",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 10.sp
             )
         }
     }
