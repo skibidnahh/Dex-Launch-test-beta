@@ -6,7 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.os.Build
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import com.example.dexlauncher.data.model.AppInfo
 import com.example.dexlauncher.shizuku.ShizukuManager
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +24,8 @@ import kotlinx.coroutines.withContext
 class AppRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("dex_apps_pref", Context.MODE_PRIVATE)
+
+    private val iconCache = LruCache<String, ImageBitmap>(100)
 
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     val installedApps: StateFlow<List<AppInfo>> = _installedApps.asStateFlow()
@@ -36,6 +44,33 @@ class AppRepository(private val context: Context) {
 
     private val _hiddenPackages = MutableStateFlow<Set<String>>(loadHiddenPackages())
     val hiddenPackages: StateFlow<Set<String>> = _hiddenPackages.asStateFlow()
+
+    fun getAppIconBitmap(packageName: String): ImageBitmap? {
+        iconCache.get(packageName)?.let { return it }
+        try {
+            val pm = context.packageManager
+            val drawable = pm.getApplicationIcon(packageName)
+            val bitmap = drawableToBitmap(drawable)
+            val imageBitmap = bitmap.asImageBitmap()
+            iconCache.put(packageName, imageBitmap)
+            return imageBitmap
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun drawableToBitmap(drawable: Drawable): Bitmap {
+        if (drawable is android.graphics.drawable.BitmapDrawable && drawable.bitmap != null) {
+            return drawable.bitmap
+        }
+        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 96
+        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 96
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
+    }
 
     suspend fun refreshApps() = withContext(Dispatchers.IO) {
         val pm = context.packageManager
@@ -61,14 +96,17 @@ class AppRepository(private val context: Context) {
             .map { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
                 val label = resolveInfo.loadLabel(pm).toString()
-                val icon = resolveInfo.loadIcon(pm)
                 val activity = resolveInfo.activityInfo.name
+                val drawable = resolveInfo.loadIcon(pm)
+                try {
+                    val bmp = drawableToBitmap(drawable)
+                    iconCache.put(pkg, bmp.asImageBitmap())
+                } catch (_: Exception) {}
 
                 AppInfo(
                     label = label,
                     packageName = pkg,
                     activityName = activity,
-                    icon = icon,
                     isPinnedToDesktop = desktopPinnedSet.contains(pkg),
                     isPinnedToTaskbar = taskbarPinnedSet.contains(pkg),
                     isRunning = runningSet.contains(pkg)
@@ -78,7 +116,6 @@ class AppRepository(private val context: Context) {
 
         _installedApps.value = apps
 
-        // Filter out hidden packages from desktop and drawer
         val desktopOrder = getDesktopAppOrder()
         val pinned = apps.filter { it.isPinnedToDesktop && !hiddenSet.contains(it.packageName) }
         _pinnedDesktopApps.value = if (desktopOrder.isNotEmpty()) {
@@ -111,14 +148,6 @@ class AppRepository(private val context: Context) {
         _hiddenPackages.value = current
     }
 
-    fun toggleHideApp(packageName: String) {
-        if (_hiddenPackages.value.contains(packageName)) {
-            unhideApp(packageName)
-        } else {
-            hideApp(packageName)
-        }
-    }
-
     private fun getPinnedDesktopPackages(): Set<String> {
         val defaultPinned = setOf(
             "com.sec.android.app.myfiles",
@@ -126,9 +155,7 @@ class AppRepository(private val context: Context) {
             "com.sec.android.app.sbrowser",
             "com.android.chrome",
             "com.google.android.apps.photos",
-            "com.sec.android.gallery3d",
-            "com.google.android.gm",
-            "com.spotify.music"
+            "com.google.android.gm"
         )
         return prefs.getStringSet("pinned_desktop_packages", null) ?: run {
             prefs.edit().putStringSet("pinned_desktop_packages", defaultPinned).apply()
@@ -160,24 +187,30 @@ class AppRepository(private val context: Context) {
         _pinnedDesktopApps.value = _pinnedDesktopApps.value.sortedBy { orderMap[it.packageName] ?: 999 }
     }
 
-    suspend fun togglePinToDesktop(packageName: String) {
+    suspend fun pinToDesktop(packageName: String) {
         val currentSet = getPinnedDesktopPackages().toMutableSet()
-        if (currentSet.contains(packageName)) {
-            currentSet.remove(packageName)
-        } else {
-            currentSet.add(packageName)
-        }
+        currentSet.add(packageName)
         prefs.edit().putStringSet("pinned_desktop_packages", currentSet).apply()
         refreshApps()
     }
 
-    suspend fun togglePinToTaskbar(packageName: String) {
+    suspend fun unpinFromDesktop(packageName: String) {
+        val currentSet = getPinnedDesktopPackages().toMutableSet()
+        currentSet.remove(packageName)
+        prefs.edit().putStringSet("pinned_desktop_packages", currentSet).apply()
+        refreshApps()
+    }
+
+    suspend fun pinToTaskbar(packageName: String) {
         val currentSet = getPinnedTaskbarPackages().toMutableSet()
-        if (currentSet.contains(packageName)) {
-            currentSet.remove(packageName)
-        } else {
-            currentSet.add(packageName)
-        }
+        currentSet.add(packageName)
+        prefs.edit().putStringSet("pinned_taskbar_packages", currentSet).apply()
+        refreshApps()
+    }
+
+    suspend fun unpinFromTaskbar(packageName: String) {
+        val currentSet = getPinnedTaskbarPackages().toMutableSet()
+        currentSet.remove(packageName)
         prefs.edit().putStringSet("pinned_taskbar_packages", currentSet).apply()
         refreshApps()
     }
@@ -187,38 +220,18 @@ class AppRepository(private val context: Context) {
         current.add(packageName)
         _runningPackages.value = current
         _focusedPackage.value = packageName
-
-        _installedApps.value = _installedApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = true) else it
-        }
-        _pinnedDesktopApps.value = _pinnedDesktopApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = true) else it
-        }
-        _pinnedTaskbarApps.value = _pinnedTaskbarApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = true) else it
-        }
     }
 
     fun setFocusedApp(packageName: String?) {
         _focusedPackage.value = packageName
     }
 
-    fun markAppClosed(packageName: String) {
+    fun markAppStopped(packageName: String) {
         val current = _runningPackages.value.toMutableSet()
         current.remove(packageName)
         _runningPackages.value = current
         if (_focusedPackage.value == packageName) {
             _focusedPackage.value = current.lastOrNull()
-        }
-
-        _installedApps.value = _installedApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = false) else it
-        }
-        _pinnedDesktopApps.value = _pinnedDesktopApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = false) else it
-        }
-        _pinnedTaskbarApps.value = _pinnedTaskbarApps.value.map {
-            if (it.packageName == packageName) it.copy(isRunning = false) else it
         }
     }
 
@@ -242,7 +255,7 @@ class AppRepository(private val context: Context) {
         try {
             val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return
             val endTime = System.currentTimeMillis()
-            val startTime = endTime - 1000 * 60 * 30 // last 30 minutes
+            val startTime = endTime - 1000 * 60 * 30
             val usageEvents = usm.queryEvents(startTime, endTime)
             val event = UsageEvents.Event()
             val recentPkgs = mutableSetOf<String>()
@@ -257,8 +270,6 @@ class AppRepository(private val context: Context) {
                 current.addAll(recentPkgs)
                 _runningPackages.value = current
             }
-        } catch (e: Exception) {
-            // Ignore if permission not granted
-        }
+        } catch (_: Exception) {}
     }
 }

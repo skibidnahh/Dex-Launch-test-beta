@@ -11,7 +11,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.example.dexlauncher.DeXApplication
 import com.example.dexlauncher.MainActivity
 import com.example.dexlauncher.R
 
@@ -22,7 +21,6 @@ class ScreenStateService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     StandbyStateManager.resetToStandby()
-                    // Re-bring MainActivity to front so that when screen turns on, Standby is visible
                     val homeIntent = Intent(this@ScreenStateService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                     }
@@ -55,10 +53,10 @@ class ScreenStateService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification: Notification = NotificationCompat.Builder(this, DeXApplication.CHANNEL_SCREEN_SERVICE)
+        val notification: Notification = NotificationCompat.Builder(this, "channel_screen")
             .setContentTitle("Samsung DeX Launcher")
-            .setContentText(getString(R.string.screen_service_running))
-            .setSmallIcon(R.drawable.ic_dex_apps)
+            .setContentText("Screen state service running")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)

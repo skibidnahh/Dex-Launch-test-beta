@@ -12,15 +12,13 @@ import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
@@ -42,7 +40,6 @@ import com.example.dexlauncher.data.repository.AppRepository
 import com.example.dexlauncher.data.repository.SettingsRepository
 import com.example.dexlauncher.shizuku.ShizukuManager
 import com.example.dexlauncher.ui.taskbar.TaskbarView
-import com.example.dexlauncher.ui.theme.DeXDarkPalette
 import com.example.dexlauncher.ui.theme.DeXLauncherTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,7 +62,6 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     private lateinit var appRepository: AppRepository
     private lateinit var settingsRepository: SettingsRepository
-    private lateinit var shizukuManager: ShizukuManager
 
     override fun onCreate() {
         super.onCreate()
@@ -74,9 +70,8 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
-        appRepository = AppRepository(applicationContext)
-        settingsRepository = SettingsRepository(applicationContext)
-        shizukuManager = ShizukuManager(applicationContext)
+        appRepository = DeXApplication.instance.appRepository
+        settingsRepository = DeXApplication.instance.settingsRepository
 
         serviceScope.launch {
             appRepository.refreshApps()
@@ -98,10 +93,10 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification: Notification = NotificationCompat.Builder(this, DeXApplication.CHANNEL_TASKBAR_SERVICE)
+        val notification: Notification = NotificationCompat.Builder(this, "channel_taskbar")
             .setContentTitle("Samsung DeX Taskbar")
-            .setContentText(getString(R.string.taskbar_service_running))
-            .setSmallIcon(R.drawable.ic_dex_apps)
+            .setContentText("Taskbar service is running")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -135,7 +130,7 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.FILL_HORIZONTAL
-            height = (54 * resources.displayMetrics.density).toInt()
+            height = (56 * resources.displayMetrics.density).toInt()
         }
 
         overlayView = ComposeView(this).apply {
@@ -145,90 +140,37 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
             setContent {
                 DeXLauncherTheme {
-                    val pinnedApps by appRepository.pinnedTaskbarApps.collectAsState()
-                    val allApps by appRepository.installedApps.collectAsState()
-                    val runningPackages by appRepository.runningPackages.collectAsState()
-                    val taskbarAppearance by settingsRepository.taskbarAppearance.collectAsState()
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(taskbarAppearance.heightDp.dp)
-                            .background(DeXDarkPalette.TaskbarBackground)
-                    ) {
-                        TaskbarView(
-                            pinnedApps = pinnedApps,
-                            allApps = allApps,
-                            runningPackages = runningPackages,
-                            focusedPackage = null,
-                            taskbarAppearance = taskbarAppearance,
-                            shizukuManager = shizukuManager,
-                            onAppsClicked = {
-                                val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                    putExtra("OPEN_APP_DRAWER", true)
-                                }
-                                startActivity(intent)
-                            },
-                            onHomeClicked = {
-                                val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                }
-                                startActivity(intent)
-                            },
-                            onRecentsClicked = {
-                                try {
-                                    if (shizukuManager.isConnected()) {
-                                        serviceScope.launch(Dispatchers.IO) {
-                                            shizukuManager.executeShell("input keyevent KEYCODE_APP_SWITCH")
-                                        }
-                                    } else {
-                                        val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                        }
-                                        startActivity(intent)
-                                    }
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            },
-                            onBackClicked = {
-                                if (shizukuManager.isConnected()) {
-                                    serviceScope.launch(Dispatchers.IO) {
-                                        shizukuManager.executeShell("input keyevent KEYCODE_BACK")
-                                    }
-                                }
-                            },
-                            onAppClicked = { app, isRunning ->
-                                val intent = packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                                if (intent != null) {
-                                    startActivity(intent)
-                                    appRepository.markAppStarted(app.packageName)
-                                }
-                            },
-                            onCloseApp = { app ->
-                                if (shizukuManager.isConnected()) {
-                                    serviceScope.launch(Dispatchers.IO) {
-                                        shizukuManager.forceStopApp(app.packageName)
-                                    }
-                                }
-                            },
-                            onTogglePinTaskbar = { app ->
-                                serviceScope.launch {
-                                    appRepository.togglePinToTaskbar(app.packageName)
-                                }
-                            },
-                            onSettingsClicked = {
-                                val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                    putExtra("OPEN_SETTINGS", true)
-                                }
-                                startActivity(intent)
+                    TaskbarView(
+                        appRepository = appRepository,
+                        onToggleAppDrawer = {
+                            val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                putExtra("OPEN_DRAWER", true)
                             }
-                        )
-                    }
+                            startActivity(intent)
+                        },
+                        onToggleQuickPanel = {
+                            val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                putExtra("OPEN_QUICK_PANEL", true)
+                            }
+                            startActivity(intent)
+                        },
+                        onOpenSettings = {
+                            val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                putExtra("OPEN_SETTINGS", true)
+                            }
+                            startActivity(intent)
+                        },
+                        onToggleStandby = {
+                            val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                putExtra("OPEN_STANDBY", true)
+                            }
+                            startActivity(intent)
+                        }
+                    )
                 }
             }
         }
