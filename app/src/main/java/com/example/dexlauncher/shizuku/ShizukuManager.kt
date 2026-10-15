@@ -33,7 +33,7 @@ class ShizukuManager(private val context: Context) {
     private val userServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             shizukuService = IShizukuService.Stub.asInterface(service)
-            val isRoot = Shizuku.getUid() == 0
+            val isRoot = Shizuku.isPreV11() || Shizuku.getUid() == 0
             _status.value = ShizukuStatus.Connected(isRoot = isRoot, uid = Shizuku.getUid())
         }
 
@@ -62,29 +62,42 @@ class ShizukuManager(private val context: Context) {
         }
 
     init {
-        Shizuku.addBinderReceivedListener(binderReceivedListener)
-        Shizuku.addBinderDeadListener(binderDeadListener)
-        Shizuku.addRequestPermissionResultListener(requestPermissionResultListener)
-        checkStatus()
+        try {
+            Shizuku.addBinderReceivedListener(binderReceivedListener)
+            Shizuku.addBinderDeadListener(binderDeadListener)
+            Shizuku.addRequestPermissionResultListener(requestPermissionResultListener)
+            checkStatus()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun checkStatus() {
-        if (!isShizukuInstalled()) {
-            _status.value = ShizukuStatus.NotInstalled
-            return
-        }
+        try {
+            if (!isShizukuInstalled()) {
+                _status.value = ShizukuStatus.NotInstalled
+                return
+            }
 
-        if (!Shizuku.pingBinder()) {
+            if (!Shizuku.pingBinder()) {
+                _status.value = ShizukuStatus.NotRunning
+                return
+            }
+
+            if (Shizuku.isPreV11()) {
+                _status.value = ShizukuStatus.Connected(isRoot = false, uid = 0)
+                return
+            }
+
+            if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                bindUserService()
+            } else if (Shizuku.shouldShowRequestPermissionRationale()) {
+                _status.value = ShizukuStatus.PermissionNeeded
+            } else {
+                _status.value = ShizukuStatus.PermissionNeeded
+            }
+        } catch (e: Exception) {
             _status.value = ShizukuStatus.NotRunning
-            return
-        }
-
-        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-            bindUserService()
-        } else if (Shizuku.shouldShowRequestPermissionRationale()) {
-            _status.value = ShizukuStatus.PermissionNeeded
-        } else {
-            _status.value = ShizukuStatus.PermissionNeeded
         }
     }
 
@@ -98,8 +111,12 @@ class ShizukuManager(private val context: Context) {
     }
 
     fun requestPermission(activity: Activity, requestCode: Int = 1001) {
-        if (Shizuku.pingBinder()) {
-            Shizuku.requestPermission(requestCode)
+        try {
+            if (Shizuku.pingBinder()) {
+                Shizuku.requestPermission(requestCode)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -129,9 +146,7 @@ class ShizukuManager(private val context: Context) {
 
             Shizuku.bindUserService(userServiceArgs, userServiceConnection)
         } catch (e: Exception) {
-            e.printStackTrace()
-            // Still connected with basic Shizuku permission
-            val isRoot = Shizuku.getUid() == 0
+            val isRoot = Shizuku.isPreV11() || Shizuku.getUid() == 0
             _status.value = ShizukuStatus.Connected(isRoot = isRoot, uid = Shizuku.getUid())
         }
     }
@@ -140,15 +155,14 @@ class ShizukuManager(private val context: Context) {
         return _status.value is ShizukuStatus.Connected
     }
 
-    fun launchFreeformWindow(packageName: String, bounds: Rect) {
-        val service = shizukuService
-        if (service != null) {
-            try {
-                service.launchWindow(packageName, bounds.left, bounds.top, bounds.right, bounds.bottom)
-                return
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    fun launchFreeformWindow(packageName: String, bounds: Rect): Boolean {
+        val service = shizukuService ?: return false
+        return try {
+            service.launchWindow(packageName, bounds.left, bounds.top, bounds.right, bounds.bottom)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
@@ -195,6 +209,15 @@ class ShizukuManager(private val context: Context) {
             shizukuService?.closeTask(taskId)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    fun forceStopApp(packageName: String): Boolean {
+        return try {
+            executeShell("am force-stop $packageName")
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

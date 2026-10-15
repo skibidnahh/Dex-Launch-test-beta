@@ -1,12 +1,16 @@
 package com.example.dexlauncher.ui.taskbar
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,13 +26,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Launch
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.ripple
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dexlauncher.R
 import com.example.dexlauncher.data.model.AppInfo
+import com.example.dexlauncher.data.repository.TaskbarAppearance
+import com.example.dexlauncher.shizuku.ShizukuManager
 import com.example.dexlauncher.ui.theme.DeXDarkPalette
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -57,16 +67,21 @@ import java.util.Locale
 @Composable
 fun TaskbarView(
     pinnedApps: List<AppInfo>,
+    allApps: List<AppInfo>,
     runningPackages: Set<String>,
+    focusedPackage: String?,
+    taskbarAppearance: TaskbarAppearance,
+    shizukuManager: ShizukuManager,
     onAppsClicked: () -> Unit,
     onHomeClicked: () -> Unit,
     onRecentsClicked: () -> Unit,
     onBackClicked: () -> Unit,
-    onAppClicked: (AppInfo) -> Unit,
+    onAppClicked: (AppInfo, Boolean) -> Unit, // app, isRunning
+    onCloseApp: (AppInfo) -> Unit,
+    onTogglePinTaskbar: (AppInfo) -> Unit,
     onSettingsClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Clock for status tray
     var currentTime by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -78,11 +93,30 @@ fun TaskbarView(
     val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val dateFormat = remember { SimpleDateFormat("EEE, d MMM", Locale.getDefault()) }
 
+    // Combined taskbar list: pinned apps + running unpinned apps
+    val pinnedPackageSet = remember(pinnedApps) { pinnedApps.map { it.packageName }.toSet() }
+    val unpinnedRunningApps = remember(allApps, runningPackages, pinnedPackageSet) {
+        allApps.filter { runningPackages.contains(it.packageName) && !pinnedPackageSet.contains(it.packageName) }
+    }
+    val combinedTaskbarApps = remember(pinnedApps, unpinnedRunningApps) {
+        pinnedApps + unpinnedRunningApps
+    }
+
+    val taskbarBg = remember(taskbarAppearance.transparency) {
+        DeXDarkPalette.TaskbarBackground.copy(alpha = taskbarAppearance.transparency.coerceIn(0.1f, 1.0f))
+    }
+
+    val shape = remember(taskbarAppearance.cornerRadiusDp) {
+        if (taskbarAppearance.cornerRadiusDp > 0) RoundedCornerShape(topStart = taskbarAppearance.cornerRadiusDp.dp, topEnd = taskbarAppearance.cornerRadiusDp.dp)
+        else RoundedCornerShape(0.dp)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(54.dp)
-            .background(DeXDarkPalette.TaskbarBackground)
+            .height(taskbarAppearance.heightDp.dp)
+            .clip(shape)
+            .background(taskbarBg)
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -93,10 +127,7 @@ fun TaskbarView(
             modifier = Modifier.fillMaxHeight()
         ) {
             // Apps (9 dots)
-            TaskbarIconButton(
-                onClick = onAppsClicked,
-                contentDescription = "Apps"
-            ) {
+            TaskbarIconButton(onClick = onAppsClicked, contentDescription = "Apps") {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_dex_apps),
                     contentDescription = null,
@@ -106,10 +137,7 @@ fun TaskbarView(
             }
 
             // Recents (III)
-            TaskbarIconButton(
-                onClick = onRecentsClicked,
-                contentDescription = "Recents"
-            ) {
+            TaskbarIconButton(onClick = onRecentsClicked, contentDescription = "Recents") {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_dex_recents),
                     contentDescription = null,
@@ -119,10 +147,7 @@ fun TaskbarView(
             }
 
             // Home
-            TaskbarIconButton(
-                onClick = onHomeClicked,
-                contentDescription = "Home"
-            ) {
+            TaskbarIconButton(onClick = onHomeClicked, contentDescription = "Home") {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_dex_home),
                     contentDescription = null,
@@ -132,10 +157,7 @@ fun TaskbarView(
             }
 
             // Back
-            TaskbarIconButton(
-                onClick = onBackClicked,
-                contentDescription = "Back"
-            ) {
+            TaskbarIconButton(onClick = onBackClicked, contentDescription = "Back") {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_dex_back),
                     contentDescription = null,
@@ -144,7 +166,7 @@ fun TaskbarView(
                 )
             }
 
-            // Divider
+            // Separator
             Box(
                 modifier = Modifier
                     .padding(horizontal = 6.dp)
@@ -158,12 +180,18 @@ fun TaskbarView(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxHeight()
             ) {
-                pinnedApps.take(7).forEach { app ->
+                combinedTaskbarApps.take(12).forEach { app ->
                     val isRunning = runningPackages.contains(app.packageName)
+                    val isFocused = focusedPackage == app.packageName
+
                     TaskbarAppItem(
                         app = app,
                         isRunning = isRunning,
-                        onClick = { onAppClicked(app) }
+                        isFocused = isFocused,
+                        shizukuManager = shizukuManager,
+                        onClick = { onAppClicked(app, isRunning) },
+                        onCloseApp = { onCloseApp(app) },
+                        onTogglePin = { onTogglePinTaskbar(app) }
                     )
                 }
             }
@@ -176,7 +204,6 @@ fun TaskbarView(
                 .fillMaxHeight()
                 .padding(end = 4.dp)
         ) {
-            // Pill status container
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -184,47 +211,27 @@ fun TaskbarView(
                     .background(Color.White.copy(alpha = 0.08f))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                // Chevron expander
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "Expand Tray",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp)
-                )
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Wi-Fi
                 Icon(
                     imageVector = Icons.Default.Wifi,
                     contentDescription = "Wi-Fi",
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(15.dp)
                 )
-
                 Spacer(modifier = Modifier.width(6.dp))
-
-                // Volume
                 Icon(
                     imageVector = Icons.Default.VolumeUp,
                     contentDescription = "Volume",
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(15.dp)
                 )
-
                 Spacer(modifier = Modifier.width(6.dp))
-
-                // Battery 100%
                 Text(
                     text = "100%",
                     color = Color.White.copy(alpha = 0.85f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
-
                 Spacer(modifier = Modifier.width(8.dp))
-
-                // Settings quick trigger
                 Box(
                     modifier = Modifier
                         .size(24.dp)
@@ -243,7 +250,6 @@ fun TaskbarView(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Clock & Date Stack
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.Center,
@@ -291,65 +297,128 @@ fun TaskbarIconButton(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TaskbarAppItem(
     app: AppInfo,
     isRunning: Boolean,
-    onClick: () -> Unit
+    isFocused: Boolean,
+    shizukuManager: ShizukuManager,
+    onClick: () -> Unit,
+    onCloseApp: () -> Unit,
+    onTogglePin: () -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier
-            .size(width = 46.dp, height = 50.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true, color = Color.White),
-                onClick = onClick
-            )
-            .padding(vertical = 4.dp)
-    ) {
-        // App icon
-        val bitmap = remember(app.icon) {
-            app.icon?.let { drawableToBitmap(it) }
-        }
+    val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
 
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = app.label,
-                modifier = Modifier.size(32.dp)
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF2563EB)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = app.label.take(1).uppercase(),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+    Box(contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .size(width = 46.dp, height = 50.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(bounded = true, color = Color.White),
+                    onClick = onClick,
+                    onLongClick = { showMenu = true }
                 )
+                .padding(vertical = 4.dp)
+        ) {
+            val bitmap = remember(app.icon) {
+                app.icon?.let { drawableToBitmap(it) }
+            }
+
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = app.label,
+                    modifier = Modifier.size(32.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF2563EB)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = app.label.take(1).uppercase(),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            // Running indicator
+            if (isRunning) {
+                Box(
+                    modifier = Modifier
+                        .size(width = if (isFocused) 22.dp else 12.dp, height = 3.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(if (isFocused) DeXDarkPalette.ActiveCyan else Color(0xFF60A5FA))
+                )
+            } else {
+                Spacer(modifier = Modifier.height(3.dp))
             }
         }
 
-        Spacer(modifier = Modifier.height(2.dp))
-
-        // Running indicator: glowing blue/cyan pill under icon
-        if (isRunning) {
-            Box(
-                modifier = Modifier
-                    .size(width = 12.dp, height = 3.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(DeXDarkPalette.ActiveCyan)
+        // Long Press Context Menu
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            modifier = Modifier.background(DeXDarkPalette.CardBackground)
+        ) {
+            DropdownMenuItem(
+                text = { Text("Mở cửa sổ mới", color = Color.White, fontSize = 13.sp) },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Default.Launch, contentDescription = null, tint = DeXDarkPalette.PrimaryBlue, modifier = Modifier.size(16.dp))
+                },
+                onClick = {
+                    onClick()
+                    showMenu = false
+                }
             )
-        } else {
-            Spacer(modifier = Modifier.height(3.dp))
+
+            if (isRunning) {
+                DropdownMenuItem(
+                    text = { Text("Đóng ứng dụng", color = Color(0xFFEF4444), fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                    },
+                    onClick = {
+                        if (shizukuManager.isConnected()) {
+                            shizukuManager.forceStopApp(app.packageName)
+                        } else {
+                            Toast.makeText(context, "Đã đóng khỏi Taskbar", Toast.LENGTH_SHORT).show()
+                        }
+                        onCloseApp()
+                        showMenu = false
+                    }
+                )
+            }
+
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (app.isPinnedToTaskbar) "Bỏ ghim khỏi Taskbar" else "Ghim vào Taskbar",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Default.PushPin, contentDescription = null, tint = DeXDarkPalette.ActiveCyan, modifier = Modifier.size(16.dp))
+                },
+                onClick = {
+                    onTogglePin()
+                    showMenu = false
+                }
+            )
         }
     }
 }

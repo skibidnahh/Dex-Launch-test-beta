@@ -4,11 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,15 +27,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material3.ripple
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -48,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,19 +72,26 @@ import com.example.dexlauncher.ui.theme.DeXDarkPalette
 fun AppDrawerDialog(
     isOpen: Boolean,
     apps: List<AppInfo>,
+    hiddenPackages: Set<String>,
     onDismissRequest: () -> Unit,
     onAppClicked: (AppInfo) -> Unit,
     onTogglePinDesktop: (AppInfo) -> Unit,
-    onTogglePinTaskbar: (AppInfo) -> Unit
+    onTogglePinTaskbar: (AppInfo) -> Unit,
+    onHideApp: (AppInfo) -> Unit
 ) {
     if (!isOpen) return
 
     var searchQuery by remember { mutableStateOf("") }
-    val filteredApps = remember(searchQuery, apps) {
+    // Filter out hidden packages
+    val visibleApps = remember(apps, hiddenPackages) {
+        apps.filter { !hiddenPackages.contains(it.packageName) }
+    }
+
+    val filteredApps = remember(searchQuery, visibleApps) {
         if (searchQuery.isBlank()) {
-            apps
+            visibleApps
         } else {
-            apps.filter { it.label.contains(searchQuery.trim(), ignoreCase = true) }
+            visibleApps.filter { it.label.contains(searchQuery.trim(), ignoreCase = true) }
         }
     }
 
@@ -106,7 +109,6 @@ fun AppDrawerDialog(
                 .padding(bottom = 60.dp, top = 24.dp, start = 16.dp, end = 16.dp),
             contentAlignment = Alignment.BottomStart
         ) {
-            // DeX Floating Drawer Panel
             Column(
                 modifier = Modifier
                     .widthIn(min = 340.dp, max = 560.dp)
@@ -116,7 +118,6 @@ fun AppDrawerDialog(
                     .border(1.dp, DeXDarkPalette.Border, RoundedCornerShape(16.dp))
                     .padding(16.dp)
             ) {
-                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -163,7 +164,6 @@ fun AppDrawerDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // App Grid
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 78.dp),
                     contentPadding = PaddingValues(4.dp),
@@ -179,7 +179,8 @@ fun AppDrawerDialog(
                                 onDismissRequest()
                             },
                             onTogglePinDesktop = { onTogglePinDesktop(app) },
-                            onTogglePinTaskbar = { onTogglePinTaskbar(app) }
+                            onTogglePinTaskbar = { onTogglePinTaskbar(app) },
+                            onHideApp = { onHideApp(app) }
                         )
                     }
                 }
@@ -194,7 +195,8 @@ fun AppDrawerItem(
     app: AppInfo,
     onClick: () -> Unit,
     onTogglePinDesktop: () -> Unit,
-    onTogglePinTaskbar: () -> Unit
+    onTogglePinTaskbar: () -> Unit,
+    onHideApp: () -> Unit
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -262,8 +264,7 @@ fun AppDrawerItem(
             DropdownMenuItem(
                 text = {
                     Text(
-                        if (app.isPinnedToDesktop) stringResource(R.string.unpin_from_desktop)
-                        else stringResource(R.string.pin_to_desktop),
+                        if (app.isPinnedToDesktop) "Bỏ khỏi Desktop" else "Thêm vào Desktop",
                         color = Color.White,
                         fontSize = 13.sp
                     )
@@ -285,8 +286,7 @@ fun AppDrawerItem(
             DropdownMenuItem(
                 text = {
                     Text(
-                        if (app.isPinnedToTaskbar) stringResource(R.string.unpin_from_taskbar)
-                        else stringResource(R.string.pin_to_taskbar),
+                        if (app.isPinnedToTaskbar) "Bỏ ghim Taskbar" else "Ghim Taskbar",
                         color = Color.White,
                         fontSize = 13.sp
                     )
@@ -307,11 +307,47 @@ fun AppDrawerItem(
 
             DropdownMenuItem(
                 text = {
-                    Text(
-                        stringResource(R.string.app_info),
-                        color = Color.White,
-                        fontSize = 13.sp
+                    Text("Ẩn ứng dụng", color = Color(0xFFFBBF24), fontSize = 13.sp)
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.VisibilityOff,
+                        contentDescription = null,
+                        tint = Color(0xFFFBBF24),
+                        modifier = Modifier.size(16.dp)
                     )
+                },
+                onClick = {
+                    onHideApp()
+                    showMenu = false
+                }
+            )
+
+            DropdownMenuItem(
+                text = {
+                    Text("Gỡ cài đặt", color = Color(0xFFEF4444), fontSize = 13.sp)
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                onClick = {
+                    showMenu = false
+                    val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
+                        data = Uri.parse("package:${app.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(uninstallIntent)
+                }
+            )
+
+            DropdownMenuItem(
+                text = {
+                    Text(stringResource(R.string.app_info), color = Color.White, fontSize = 13.sp)
                 },
                 leadingIcon = {
                     Icon(

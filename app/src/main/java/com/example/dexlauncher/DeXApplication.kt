@@ -7,13 +7,25 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.example.dexlauncher.data.repository.AppRepository
+import com.example.dexlauncher.data.repository.SettingsRepository
 import com.example.dexlauncher.service.ScreenStateService
 
 class DeXApplication : Application() {
 
+    lateinit var appRepository: AppRepository
+        private set
+
+    lateinit var settingsRepository: SettingsRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        appRepository = AppRepository(applicationContext)
+        settingsRepository = SettingsRepository(applicationContext)
+
         createNotificationChannels()
         startScreenMonitorService()
     }

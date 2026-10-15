@@ -2,6 +2,7 @@ package com.example.dexlauncher
 
 import android.app.ActivityOptions
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +28,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.dexlauncher.data.model.AppInfo
 import com.example.dexlauncher.data.repository.AppRepository
 import com.example.dexlauncher.data.repository.SettingsRepository
@@ -39,6 +43,7 @@ import com.example.dexlauncher.ui.drawer.AppDrawerDialog
 import com.example.dexlauncher.ui.settings.SettingsDialog
 import com.example.dexlauncher.ui.standby.StandbyScreen
 import com.example.dexlauncher.ui.theme.DeXLauncherTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -64,11 +69,19 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         enableEdgeToEdge()
 
         appRepository = AppRepository(applicationContext)
         settingsRepository = SettingsRepository(applicationContext)
         shizukuManager = ShizukuManager(applicationContext)
+
+        applySystemBarVisibility()
+        applyOrientation()
 
         val screenServiceIntent = Intent(this, ScreenStateService::class.java)
         try {
@@ -92,7 +105,35 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        applySystemBarVisibility()
+        applyOrientation()
         shizukuManager.checkStatus()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applySystemBarVisibility()
+        }
+    }
+
+    private fun applySystemBarVisibility() {
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (settingsRepository.hideSystemBars.value) {
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun applyOrientation() {
+        requestedOrientation = if (settingsRepository.alwaysLandscape.value) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -115,15 +156,32 @@ class MainActivity : ComponentActivity() {
     private fun MainContent() {
         val coroutineScope = rememberCoroutineScope()
         val isStandby by StandbyStateManager.isStandbyActive.collectAsState()
-        val currentWallpaper by settingsRepository.currentWallpaper.collectAsState()
+        val desktopWallpaper by settingsRepository.desktopWallpaper.collectAsState()
+        val standbyWallpaper by settingsRepository.standbyWallpaper.collectAsState()
+        val standbySettings by settingsRepository.standbySettings.collectAsState()
+        val desktopAppearance by settingsRepository.desktopAppearance.collectAsState()
+        val taskbarAppearance by settingsRepository.taskbarAppearance.collectAsState()
+        val alwaysLandscape by settingsRepository.alwaysLandscape.collectAsState()
+        val hideSystemBars by settingsRepository.hideSystemBars.collectAsState()
+
         val installedApps by appRepository.installedApps.collectAsState()
         val pinnedDesktopApps by appRepository.pinnedDesktopApps.collectAsState()
         val pinnedTaskbarApps by appRepository.pinnedTaskbarApps.collectAsState()
         val runningPackages by appRepository.runningPackages.collectAsState()
+        val focusedPackage by appRepository.focusedPackage.collectAsState()
+        val hiddenPackages by appRepository.hiddenPackages.collectAsState()
         val isOverlayEnabled by settingsRepository.isTaskbarOverlayEnabled.collectAsState()
 
         var isAppDrawerOpen by remember { mutableStateOf(false) }
         var isSettingsOpen by remember { mutableStateOf(false) }
+
+        LaunchedEffect(alwaysLandscape) {
+            applyOrientation()
+        }
+
+        LaunchedEffect(hideSystemBars) {
+            applySystemBarVisibility()
+        }
 
         LaunchedEffect(openDrawerOnStart) {
             if (openDrawerOnStart) {
@@ -163,16 +221,32 @@ class MainActivity : ComponentActivity() {
         Box(modifier = Modifier.fillMaxSize()) {
             // 1. Desktop Screen
             DesktopScreen(
-                wallpaper = currentWallpaper,
+                wallpaperSettings = desktopWallpaper,
+                desktopAppearance = desktopAppearance,
+                taskbarAppearance = taskbarAppearance,
                 pinnedDesktopApps = pinnedDesktopApps,
                 pinnedTaskbarApps = pinnedTaskbarApps,
+                allApps = installedApps,
                 runningPackages = runningPackages,
+                focusedPackage = focusedPackage,
+                shizukuManager = shizukuManager,
+                isStandbyActive = isStandby,
                 onAppClicked = { app -> launchAppExternalFreeform(app) },
                 onTogglePinDesktop = { app ->
                     coroutineScope.launch { appRepository.togglePinToDesktop(app.packageName) }
                 },
                 onTogglePinTaskbar = { app ->
                     coroutineScope.launch { appRepository.togglePinToTaskbar(app.packageName) }
+                },
+                onHideApp = { app ->
+                    coroutineScope.launch { appRepository.toggleHideApp(app.packageName) }
+                },
+                onCloseApp = { app ->
+                    if (shizukuManager.isConnected()) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            shizukuManager.forceStopApp(app.packageName)
+                        }
+                    }
                 },
                 onOpenAppDrawer = { isAppDrawerOpen = true },
                 onOpenSettings = { isSettingsOpen = true },
@@ -187,7 +261,8 @@ class MainActivity : ComponentActivity() {
                 exit = fadeOut() + slideOutVertically { -it }
             ) {
                 StandbyScreen(
-                    wallpaper = currentWallpaper,
+                    wallpaperSettings = standbyWallpaper,
+                    standbySettings = standbySettings,
                     onUnlocked = {
                         StandbyStateManager.unlockToDesktop()
                     }
@@ -198,6 +273,7 @@ class MainActivity : ComponentActivity() {
             AppDrawerDialog(
                 isOpen = isAppDrawerOpen && !isStandby,
                 apps = installedApps,
+                hiddenPackages = hiddenPackages,
                 onDismissRequest = { isAppDrawerOpen = false },
                 onAppClicked = { app ->
                     isAppDrawerOpen = false
@@ -208,6 +284,9 @@ class MainActivity : ComponentActivity() {
                 },
                 onTogglePinTaskbar = { app ->
                     coroutineScope.launch { appRepository.togglePinToTaskbar(app.packageName) }
+                },
+                onHideApp = { app ->
+                    coroutineScope.launch { appRepository.toggleHideApp(app.packageName) }
                 }
             )
 
@@ -231,9 +310,11 @@ class MainActivity : ComponentActivity() {
         // Shizuku Windowing Mode 5 (if connected in BETA)
         if (shizukuManager.isConnected()) {
             try {
-                shizukuManager.launchFreeformWindow(app.packageName, bounds)
-                appRepository.markAppStarted(app.packageName)
-                return
+                val launched = shizukuManager.launchFreeformWindow(app.packageName, bounds)
+                if (launched) {
+                    appRepository.markAppStarted(app.packageName)
+                    return
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }

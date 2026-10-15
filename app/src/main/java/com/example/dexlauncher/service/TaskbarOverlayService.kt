@@ -39,6 +39,7 @@ import com.example.dexlauncher.DeXApplication
 import com.example.dexlauncher.MainActivity
 import com.example.dexlauncher.R
 import com.example.dexlauncher.data.repository.AppRepository
+import com.example.dexlauncher.data.repository.SettingsRepository
 import com.example.dexlauncher.shizuku.ShizukuManager
 import com.example.dexlauncher.ui.taskbar.TaskbarView
 import com.example.dexlauncher.ui.theme.DeXDarkPalette
@@ -63,6 +64,7 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     private val serviceScope = CoroutineScope(Dispatchers.Main)
 
     private lateinit var appRepository: AppRepository
+    private lateinit var settingsRepository: SettingsRepository
     private lateinit var shizukuManager: ShizukuManager
 
     override fun onCreate() {
@@ -73,6 +75,7 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
         appRepository = AppRepository(applicationContext)
+        settingsRepository = SettingsRepository(applicationContext)
         shizukuManager = ShizukuManager(applicationContext)
 
         serviceScope.launch {
@@ -143,17 +146,23 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             setContent {
                 DeXLauncherTheme {
                     val pinnedApps by appRepository.pinnedTaskbarApps.collectAsState()
+                    val allApps by appRepository.installedApps.collectAsState()
                     val runningPackages by appRepository.runningPackages.collectAsState()
+                    val taskbarAppearance by settingsRepository.taskbarAppearance.collectAsState()
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
+                            .height(taskbarAppearance.heightDp.dp)
                             .background(DeXDarkPalette.TaskbarBackground)
                     ) {
                         TaskbarView(
                             pinnedApps = pinnedApps,
+                            allApps = allApps,
                             runningPackages = runningPackages,
+                            focusedPackage = null,
+                            taskbarAppearance = taskbarAppearance,
+                            shizukuManager = shizukuManager,
                             onAppsClicked = {
                                 val intent = Intent(this@TaskbarOverlayService, MainActivity::class.java).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
@@ -169,7 +178,6 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                             },
                             onRecentsClicked = {
                                 try {
-                                    // Use Shizuku shell or system intent if available
                                     if (shizukuManager.isConnected()) {
                                         serviceScope.launch(Dispatchers.IO) {
                                             shizukuManager.executeShell("input keyevent KEYCODE_APP_SWITCH")
@@ -191,13 +199,25 @@ class TaskbarOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                                     }
                                 }
                             },
-                            onAppClicked = { app ->
+                            onAppClicked = { app, isRunning ->
                                 val intent = packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
                                 if (intent != null) {
                                     startActivity(intent)
                                     appRepository.markAppStarted(app.packageName)
+                                }
+                            },
+                            onCloseApp = { app ->
+                                if (shizukuManager.isConnected()) {
+                                    serviceScope.launch(Dispatchers.IO) {
+                                        shizukuManager.forceStopApp(app.packageName)
+                                    }
+                                }
+                            },
+                            onTogglePinTaskbar = { app ->
+                                serviceScope.launch {
+                                    appRepository.togglePinToTaskbar(app.packageName)
                                 }
                             },
                             onSettingsClicked = {

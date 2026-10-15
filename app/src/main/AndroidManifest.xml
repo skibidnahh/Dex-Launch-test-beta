@@ -16,6 +16,10 @@
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <application
         android:name=".DeXApplication"
@@ -38,6 +42,7 @@
         <!-- Main Home / Launcher Activity -->
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="sensorLandscape"
             android:clearTaskOnLaunch="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:excludeFromRecents="true"
