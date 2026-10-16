@@ -5,8 +5,6 @@ import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -15,12 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.example.dexlauncher.data.model.AppInfo
 import com.example.dexlauncher.data.repository.AppRepository
 import com.example.dexlauncher.data.repository.SettingsRepository
 import com.example.dexlauncher.service.StandbyStateManager
@@ -136,7 +131,7 @@ fun DeXLauncherApp(
     var isQuickPanelOpen by remember { mutableStateOf(false) }
     var isSettingsOpen by remember { mutableStateOf(false) }
     var settingsInitialPage by remember { mutableStateOf<com.example.dexlauncher.ui.settings.SettingsPage>(com.example.dexlauncher.ui.settings.SettingsPage.Main) }
-    var isInStandby by remember { mutableStateOf(StandbyStateManager.isInStandby) }
+    val isInStandby by StandbyStateManager.isStandbyActive.collectAsState()
 
     val scope = rememberCoroutineScope()
 
@@ -156,7 +151,7 @@ fun DeXLauncherApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (StandbyStateManager.isInStandby) {
+        if (isInStandby) {
             StandbyScreen(
                 settings = settingsFlow,
                 onOpenSettings = {

@@ -11,25 +11,21 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.example.dexlauncher.DeXApplication
 import com.example.dexlauncher.MainActivity
-import com.example.dexlauncher.R
 
 class ScreenStateService : Service() {
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> {
-                    StandbyStateManager.resetToStandby()
-                    val homeIntent = Intent(this@ScreenStateService, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                    }
-                    try {
-                        startActivity(homeIntent)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                StandbyStateManager.isInStandby = true
+                val homeIntent = Intent(this@ScreenStateService, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
+                try {
+                    startActivity(homeIntent)
+                } catch (_: Exception) {}
             }
         }
     }
@@ -41,10 +37,10 @@ class ScreenStateService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
         }
         registerReceiver(screenReceiver, filter)
-        startForegroundWithNotification()
+        startForegroundNotification()
     }
 
-    private fun startForegroundWithNotification() {
+    private fun startForegroundNotification() {
         val launchIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -53,7 +49,7 @@ class ScreenStateService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification: Notification = NotificationCompat.Builder(this, "channel_screen")
+        val notification: Notification = NotificationCompat.Builder(this, DeXApplication.CHANNEL_ID)
             .setContentTitle("Samsung DeX Launcher")
             .setContentText("Screen state service running")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
@@ -81,9 +77,7 @@ class ScreenStateService : Service() {
         super.onDestroy()
         try {
             unregisterReceiver(screenReceiver)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (_: Exception) {}
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

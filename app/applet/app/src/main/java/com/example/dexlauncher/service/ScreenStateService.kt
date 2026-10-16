@@ -40,7 +40,7 @@ class ScreenStateService : Service() {
         )
 
         val notification: Notification = NotificationCompat.Builder(this, DeXApplication.CHANNEL_ID)
-            .setContentTitle("DeX Launcher Running")
+            .setContentTitle("DeX Launcher Screen Service")
             .setContentText("Standby & Taskbar service active")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)
